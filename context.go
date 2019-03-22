@@ -2,21 +2,12 @@ package mux
 
 import (
 	"net/http"
-	"sync"
 )
 
-var ctxPool *sync.Pool
-
-
-func init() {
-	ctxPool = &sync.Pool{
-		New: func() interface{} {
-			return &Context{}
-		},
-	}
-}
-
-// http请求的上下文信息
+//http上下文信息
+// 1.参数解析
+// 2.格式化返回值功能
+// 3.路由传值
 type Context struct {
 	Request *http.Request
 	RW http.ResponseWriter
