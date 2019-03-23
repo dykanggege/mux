@@ -4,6 +4,7 @@ import (
 	"math"
 	"net/http"
 	"path"
+	"path/filepath"
 	"reflect"
 )
 
@@ -119,18 +120,37 @@ func (r *RouterGroup) Use(handles ...RequestHandlerFunc) IRoute {
 	return r.returnObj()
 }
 
-func (r *RouterGroup) StaticFile(string, string) IRoute {
-	panic("implement me")
+func (r *RouterGroup) StaticFile(relative,path string) IRoute {
+	handle := func(c *Context) {
+		c.File(path)
+	}
+	r.GET(relative, handle)
+	r.HEAD(relative,handle)
+	return r.returnObj()
 }
 
-func (r *RouterGroup) Static(string, string) IRoute {
-	panic("implement me")
+func (r *RouterGroup) Static(relative string,path string) IRoute {
+	r.StaticFS(relative,http.Dir(path))
+	return r.returnObj()
 }
 
-func (r *RouterGroup) StaticFS(string, http.FileSystem) IRoute {
-	panic("implement me")
+func (r *RouterGroup) StaticFS(relative string,fs http.FileSystem) IRoute {
+	path := filepath.Join(relative,"*filepath")
+
+	handle := createStaticFileHandle(path,fs)
+
+	r.GET(path,handle)
+	r.HEAD(path,handle)
+
+	return r.returnObj()
 }
 
+func createStaticFileHandle(path string,fs http.FileSystem) RequestHandlerFunc {
+	handler := http.StripPrefix(path, http.FileServer(fs))
+	return func(ctx *Context) {
+		handler.ServeHTTP(ctx.RW,ctx.Request)
+	}
+}
 
 func (r *RouterGroup) handle (method,relativePath string,handles handleChain) IRoute {
 	p := r.mergeAbsolutePath(relativePath)
@@ -162,4 +182,5 @@ func (r *RouterGroup) returnObj() IRoute {
 	}
 	return r
 }
+
 

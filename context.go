@@ -12,3 +12,7 @@ type Context struct {
 	Request *http.Request
 	RW http.ResponseWriter
 }
+
+func (c *Context) File(path string)  {
+	http.ServeFile(c.RW,c.Request,path)
+}
