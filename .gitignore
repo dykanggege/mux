@@ -1,3 +1,2 @@
-.idea/*
-
-vendor/github.com/*
+.idea/
+vendor/github.com/
