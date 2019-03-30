@@ -19,7 +19,7 @@ type tRequestHandlerFunc = func(ctx *Context)
 type handleChain []RequestHandlerFunc
 
 type IRoute interface {
-	Any(string, ...RequestHandlerFunc) IRoute
+	ANY(string, ...RequestHandlerFunc) IRoute
 	GET(string, ...RequestHandlerFunc) IRoute
 	POST(string, ...RequestHandlerFunc) IRoute
 	DELETE(string, ...RequestHandlerFunc) IRoute
@@ -27,29 +27,27 @@ type IRoute interface {
 	PUT(string, ...RequestHandlerFunc) IRoute
 	OPTIONS(string, ...RequestHandlerFunc) IRoute
 	HEAD(string, ...RequestHandlerFunc) IRoute
-	Auto(string,interface{}) IRoute
+	AUTO(string,interface{}) IRoute
 
 	Group(string,...RequestHandlerFunc) IRoute
 
 	Use(...RequestHandlerFunc) IRoute
 
-	StaticFile(string, string) IRoute
 	Static(string, string) IRoute
-	StaticFS(string, http.FileSystem) IRoute
 }
 
-var defaultRouterGroup = &RouterGroup{
-	basePath:"/",
-	handlers: nil,
-	root:true,
+var defaultRouterGroup = RouterGroup{
+	basePath: "/",
+	Handlers: nil,
+	root:     true,
 }
 
 //分组路由器，实现路由注册，中间件注册
 type RouterGroup struct {
-	mux *Mux
+	mux      *Mux
 	basePath string
-	handlers handleChain
-	root bool
+	Handlers handleChain
+	root     bool
 }
 
 func (r *RouterGroup) GET(relativePath string,handlers ...RequestHandlerFunc) IRoute {
@@ -80,7 +78,7 @@ func (r *RouterGroup) HEAD(relativePath string,handlers ...RequestHandlerFunc) I
 	return r.handle(http.MethodHead,relativePath,handlers)
 }
 
-func (r *RouterGroup) Any(relativePath string,handlers ...RequestHandlerFunc) IRoute {
+func (r *RouterGroup) ANY(relativePath string,handlers ...RequestHandlerFunc) IRoute {
 	//嗯，简单粗暴
 	r.handle(http.MethodGet,relativePath,handlers)
 	r.handle(http.MethodPost,relativePath,handlers)
@@ -91,7 +89,7 @@ func (r *RouterGroup) Any(relativePath string,handlers ...RequestHandlerFunc) IR
 	return	r.handle(http.MethodHead,relativePath,handlers)
 }
 
-func (r *RouterGroup) Auto(relativePath string, pkg interface{}) IRoute {
+func (r *RouterGroup) AUTO(relativePath string, pkg interface{}) IRoute {
 	vpkg := reflect.ValueOf(pkg)
 	if !(vpkg.Kind() == reflect.Ptr && reflect.Indirect(vpkg).Kind() == reflect.Struct) {
 		panic("must be a struct pointer")
@@ -100,7 +98,7 @@ func (r *RouterGroup) Auto(relativePath string, pkg interface{}) IRoute {
 	for i:=0;i<vpkg.NumMethod();i++{
 		spath := vpkg.Type().Method(i).Name
 		path := path.Join(relativePath,spath)
-		r.Any(path,vpkg.Interface().(tRequestHandlerFunc))
+		r.ANY(path,vpkg.Interface().(tRequestHandlerFunc))
 	}
 
 	return r.returnObj()
@@ -108,15 +106,16 @@ func (r *RouterGroup) Auto(relativePath string, pkg interface{}) IRoute {
 
 func (r *RouterGroup) Group(relativePath string,handlers ...RequestHandlerFunc) IRoute {
 	router := &RouterGroup{
-		basePath:r.mergeAbsolutePath(relativePath),
-		handlers:r.mergeHandlers(handlers),
-		root:false,
+		basePath: r.mergeAbsolutePath(relativePath),
+		Handlers: r.mergeHandlers(handlers),
+		mux:      r.mux,
+		root:     false,
 	}
 	return router
 }
 
 func (r *RouterGroup) Use(handles ...RequestHandlerFunc) IRoute {
-	r.handlers = r.mergeHandlers(handles)
+	r.Handlers = append(r.Handlers,handles...)
 	return r.returnObj()
 }
 
@@ -129,27 +128,19 @@ func (r *RouterGroup) StaticFile(relative,path string) IRoute {
 	return r.returnObj()
 }
 
-func (r *RouterGroup) Static(relative string,path string) IRoute {
-	r.StaticFS(relative,http.Dir(path))
+func (r *RouterGroup) Static(relative string,staticPath string) IRoute {
+	fp := path.Join(relative+"/*filepath")
+	r.GET(fp, func(ctx *Context) {
+		http.ServeFile(ctx.Writer,ctx.Request,filepath.Join(staticPath,ctx.filePath()))
+	})
+	r.HEAD(fp, func(ctx *Context) {
+		http.ServeFile(ctx.Writer,ctx.Request,filepath.Join(staticPath,ctx.filePath()))
+	})
 	return r.returnObj()
 }
 
-func (r *RouterGroup) StaticFS(relative string,fs http.FileSystem) IRoute {
-	path := filepath.Join(relative,"*filepath")
-
-	handle := createStaticFileHandle(path,fs)
-
-	r.GET(path,handle)
-	r.HEAD(path,handle)
-
-	return r.returnObj()
-}
-
-func createStaticFileHandle(path string,fs http.FileSystem) RequestHandlerFunc {
-	handler := http.StripPrefix(path, http.FileServer(fs))
-	return func(ctx *Context) {
-		handler.ServeHTTP(ctx.RW,ctx.Request)
-	}
+func (r *RouterGroup)BasePath() string {
+	return r.basePath
 }
 
 func (r *RouterGroup) handle (method,relativePath string,handles handleChain) IRoute {
@@ -161,12 +152,12 @@ func (r *RouterGroup) handle (method,relativePath string,handles handleChain) IR
 
 //组合use注册的handle，和传入的handle
 func (r *RouterGroup)mergeHandlers(chain handleChain) handleChain {
-	size := len(r.handlers) + len(chain)
+	size := len(r.Handlers) + len(chain)
 	if  size > int(HandlerLimit) {
 		panic("too much handler, limit 63")
 	}
 	mergedHandlers := make([]RequestHandlerFunc,size)
-	copy(mergedHandlers,r.handlers)
+	copy(mergedHandlers,r.Handlers)
 	copy(mergedHandlers,chain)
 	return mergedHandlers
 }
@@ -182,5 +173,6 @@ func (r *RouterGroup) returnObj() IRoute {
 	}
 	return r
 }
+
 
 

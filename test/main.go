@@ -1,8 +1,17 @@
 package main
 
-import "gin"
+import (
+	"fmt"
+	"github.com/tidwall/gjson"
+)
+
+type N struct {
+	Name string `json:"name"`
+}
 
 func main() {
-	engine := gin.Default()
-	engine.Static()
+	parse := gjson.Parse(`{"name":{"first":"Janet","last":"Prichard"},"age":47}`)
+	n := parse.Get("name.first")
+	fmt.Println(n)
+
 }
