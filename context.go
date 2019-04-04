@@ -1,16 +1,16 @@
 package mux
 
 import (
+	"encoding/json"
+	"github.com/tidwall/gjson"
 	"io"
+	"io/ioutil"
 	"mime/multipart"
-	"mux/bind"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 )
-
-type bodyJSON struct {
-
-}
 
 //http上下文信息
 // 1.参数解析
@@ -26,6 +26,11 @@ type Context struct {
 	//上下文参数传递
 	keys map[string]interface{}
 
+
+	//解析json数据
+	jsonBytes []byte
+	jsonResult *gjson.Result
+
 	mux *Mux
 	handlers handleChain
 	index    int8
@@ -34,18 +39,9 @@ type Context struct {
 func (c *Context) reset()  {
 	c.index = -1
 	c.params = c.params[0:0]
-	c.Key = nil
+	c.keys = nil
 	c.handlers = nil
 	c.querys = nil
-}
-
-func (c *Context) File(path string)  {
-	http.ServeFile(c.Writer,c.Request,path)
-}
-
-func (c *Context) filePath() string {
-//	TODO:如果是请求文件，解析请求文件的路径
-	return ""
 }
 
 func (c *Context) Next()  {
@@ -55,6 +51,56 @@ func (c *Context) Next()  {
 		c.index++
 	}
 }
+
+func (c *Context) Method() string {
+	return c.Request.Method
+}
+
+func (c *Context) URI() string {
+	querys := c.querys
+	path := c.Request.URL.Path + "?"
+	for key,val := range querys {
+		for i := range val{
+			path += key+"="+val[i] + "&"
+		}
+	}
+	return path[:len(path)-1]
+}
+
+func (c *Context) URIRaw() string {
+	return c.Request.RequestURI
+}
+
+func (c *Context)Path() string {
+	return c.Request.URL.Path
+}
+
+func (c *Context)PathRaw() string {
+	p := c.Request.URL.RawPath
+	if  p != ""{
+		return p
+	}
+	return c.Request.URL.EscapedPath()
+}
+
+func (c *Context) Proto() float64 {
+	arr := strings.Split(c.Request.Proto, "/")
+	v,_ := strconv.ParseFloat(arr[len(arr)-1],10)
+	return v
+}
+
+func (c *Context) Headers() http.Header {
+	return c.Request.Header
+}
+
+func (c *Context) HeaderArr(key string) []string {
+	return c.Headers()[key]
+}
+
+func (c *Context) HeaderGet(key string) string {
+	return c.Headers().Get(key)
+}
+
 
 //path参数 /user/:id
 func (c *Context) Param(key string) string {
@@ -183,12 +229,82 @@ func (c *Context) ValueGet(key string) (string,bool) {
 	return "",false
 }
 
-func (c *Context) BodyJSON()  {
-	
+func (c *Context) BindForm(obj interface{}) error {
+	//TODO:bindForm
+	return nil
 }
 
-func (c *Context) BindWith(obj interface{},b bind.Binding) error {
-	return b.Parse(c.Request,obj)
+func (c *Context) BindPostForm(obj interface{}) error {
+	return c.BindWith(obj, PostForm)
+}
+
+func (c *Context) BindQuery(obj interface{}) error {
+	return c.BindWith(obj, Query)
+}
+
+func (c *Context) JSONGet(path ...string) (*gjson.Result,error) {
+	err := c.jsonResultAvailable()
+	if len(path) == 0{
+		return c.jsonResult,err
+	}else{
+		res := c.jsonResult
+		for i := range path{
+			temp := res.Get(path[i])
+			res = &temp
+		}
+		return res,err
+	}
+}
+
+func (c *Context) BindJSON(obj interface{},path ...string) error {
+	l := len(path)
+	if l == 0{
+		if err := c.jsonBytesAvailable(); err != nil{return err}
+		return json.Unmarshal(c.jsonBytes,obj)
+	}else{
+		if err := c.jsonResultAvailable(); err != nil{return err}
+		var err error
+		for i := range path{
+			jn := c.jsonResult.Get(path[i]).String()
+			err = json.Unmarshal([]byte(jn), obj)
+		}
+		if err != nil {return err}
+	}
+	return nil
+}
+
+func (c *Context)jsonResultAvailable() error {
+	err := c.jsonBytesAvailable()
+	if err != nil{return err}
+	if c.jsonResult == nil{
+		result := gjson.ParseBytes(c.jsonBytes)
+		c.jsonResult = &result
+	}
+	return nil
+}
+
+func (c *Context) jsonBytesAvailable() error {
+	if c.jsonBytes == nil{
+		jn, err := ioutil.ReadAll(c.Request.Body)
+		if err != nil && err != io.EOF{
+			return err
+		}
+		c.jsonBytes = jn
+	}
+	return nil
+}
+
+func (c *Context) BindWith(obj interface{},b Binding) error {
+	switch b.Name() {
+	case "JSON":
+		return c.BindJSON(obj)
+	default:
+		return b.Parse(c.Request,obj)
+	}
+}
+
+func (c *Context) Bind(obj interface{}) error {
+	return nil
 }
 
 
@@ -230,3 +346,25 @@ func (c *Context) Get(key string) (interface{},bool) {
 }
 
 
+//返回信息
+func (c *Context) File(path string)  {
+	http.ServeFile(c.Writer,c.Request,path)
+}
+
+func (c *Context) filePath() string {
+	//	TODO:如果是请求文件，解析请求文件的路径
+	return ""
+}
+
+func (c *Context) WriteJSON(obj interface{}) error {
+	bs, err := json.Marshal(obj)
+	if err != nil{
+		return err
+	}
+	_, err = c.Writer.Write(bs)
+	return err
+}
+
+func (c *Context) WriteString()  {
+
+}

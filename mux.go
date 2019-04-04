@@ -20,7 +20,7 @@ func New() (m *Mux) {
 
 	m.RouterGroup.mux = m
 	m.ctxPool.New = func() interface{} {
-		c := &Context{mux:m}
+		c := &Context{mux: m}
 		return 	c
 	}
 	return
@@ -50,7 +50,7 @@ type Mux struct {
 }
 
 func (m *Mux) ServeHTTP(rw http.ResponseWriter,req *http.Request) {
-	//从池子中取出 context，http上下文信息
+	//从池子中取出 Context，http上下文信息
 	ctx := m.ctxPool.Get().(*Context)
 	ctx.Request = req
 	ctx.Writer = rw
@@ -65,7 +65,8 @@ func (m *Mux)handleHTTPRequest(ctx *Context)  {
 	method := ctx.Request.Method
 	path := ctx.Request.URL.Path
 
-	handlers, params, ok := m.trees.getValue(method, path, nil, false)
+	//TODO:解析配置文件，根据文件信息作调整
+	handlers, params, _ := m.trees.getValue(method, path, nil, false)
 	if handlers != nil{
 		ctx.handlers = handlers
 		ctx.params = params

@@ -21,7 +21,7 @@ func (m *methodTrees) addRouter(method ,absolutePath string,chain handleChain) {
 		}
 	}
 
-	t := &methodTree{method:method}
+	t := &methodTree{method:method,root:new(node)}
 	t.addRouter(absolutePath,chain)
 	m.mts = append(m.mts,t)
 }
@@ -455,7 +455,7 @@ walk: // Outer loop for walking the tree
 						}
 
 						// ... but we can't
-						tsr = len(path) == end+1
+						ok = len(path) == end+1
 						return
 					}
 

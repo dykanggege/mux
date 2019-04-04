@@ -1,2 +1,5 @@
 package mux
 
+func MIMEType()  {
+
+}
