@@ -1,16 +1,24 @@
 package mux
 
 import (
+	"mux/session"
 	"net/http"
 	"sync"
 )
 
-//使用默认路由
 func Default() *Mux {
-	return New()
+	m := New()
+	//TODO:Default注入
+	//注入session
+	m.Session = &session.DefaultSession{}
+	//注入log
+	//注入recover
+	return m
 }
 
 //使用一个新建的路由
+//TODO:限制连接的最大数量
+//TODO:支持fasthttp
 func New() (m *Mux) {
 	m = &Mux{
 		RouterGroup:defaultRouterGroup,
@@ -33,6 +41,7 @@ func New() (m *Mux) {
 
 type Mux struct {
 	RouterGroup
+	Session session.Sessioner
 
 	//if true 使用未解码的PATH，default false
 	UseRawPath bool
@@ -52,9 +61,7 @@ type Mux struct {
 func (m *Mux) ServeHTTP(rw http.ResponseWriter,req *http.Request) {
 	//从池子中取出 Context，http上下文信息
 	ctx := m.ctxPool.Get().(*Context)
-	ctx.Request = req
-	ctx.Writer = rw
-	ctx.reset()
+	ctx.reset(req,rw)
 
 	m.handleHTTPRequest(ctx)
 

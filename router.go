@@ -6,6 +6,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"strings"
 )
 
 const (
@@ -129,6 +130,9 @@ func (r *RouterGroup) StaticFile(relative,path string) IRoute {
 }
 
 func (r *RouterGroup) Static(relative string,staticPath string) IRoute {
+	if strings.Contains(relative, ":") || strings.Contains(relative, "*") {
+		panic("URL parameters can not be used when serving a static folder")
+	}
 	fp := path.Join(relative+"/*filepath")
 	r.GET(fp, func(ctx *Context) {
 		http.ServeFile(ctx.Writer,ctx.Request,filepath.Join(staticPath,ctx.filePath()))

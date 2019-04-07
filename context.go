@@ -12,10 +12,8 @@ import (
 	"strings"
 )
 
-//http上下文信息
-// 1.参数解析
-// 2.格式化返回值功能
-// 3.路由传值
+type M map[string]interface{}
+
 type Context struct {
 	Request *http.Request
 	Writer  http.ResponseWriter
@@ -36,12 +34,17 @@ type Context struct {
 	index    int8
 }
 
-func (c *Context) reset()  {
+func (c *Context) reset(r *http.Request,w http.ResponseWriter)  {
+	c.Request = r
+	c.Writer = w
+
 	c.index = -1
-	c.params = c.params[0:0]
+	c.params = nil
 	c.keys = nil
 	c.handlers = nil
 	c.querys = nil
+	c.jsonBytes = nil
+	c.jsonResult = nil
 }
 
 func (c *Context) Next()  {
@@ -102,6 +105,27 @@ func (c *Context) HeaderGet(key string) string {
 }
 
 
+//TODO:cookie、Sessioner、JWT等机制
+func (c *Context) CookieGet(key string) (*http.Cookie, error) {
+	return c.Request.Cookie(key)
+}
+
+func (c *Context) CookieAdd(coo *http.Cookie)  {
+	http.SetCookie(c.Writer,coo)
+}
+
+func (c *Context) Session(key string) interface{} {
+	return c.mux.Session.Get(key)
+}
+
+func (c *Context) SessionSet(key string,val interface{})  {
+	c.mux.Session.Set(key,val)
+}
+
+func (c *Context) SessionDel(key string)  {
+	c.mux.Session.Del(key)
+}
+
 //path参数 /user/:id
 func (c *Context) Param(key string) string {
 	return c.params.ByName(key)
@@ -157,7 +181,7 @@ func (c *Context) Querys() map[string][]string {
 	return c.querys
 }
 
-//body参数
+//body参数，包含了url参数，但是body参数优先
 func (c *Context) PostForm(key string) string {
 	v, _ := c.PostFormGet(key)
 	return v
@@ -184,62 +208,68 @@ func (c *Context) PostFormArray(key string) []string {
 	return []string{}
 }
 
-func (c *Context) PostFormArrayGet(key string) (arr []string,ok bool) {
-	if c.Request.PostForm == nil{
-		_ = c.Request.ParseForm()
+func (c *Context) PostFormArrayGet(key string) ([]string,bool) {
+	_ = c.Request.ParseMultipartForm(c.mux.MaxMultipartMemory)
+	arr,ok := c.Request.PostForm[key]
+	if ok && len(arr) > 0{
+		return arr,ok
 	}
-	arr,ok = c.Request.PostForm[key]
-	return
+	return arr,false
 }
 
 func (c *Context) PostFroms(key string) map[string][]string {
-	if c.Request.PostForm == nil{
-		_ = c.Request.ParseForm()
-	}
+	_ = c.Request.ParseMultipartForm(c.mux.MaxMultipartMemory)
 	return c.Request.PostForm
 }
 
 
-//查找任何参数
-func (c *Context) Value(key string) string {
-	v, _ := c.ValueGet(key)
+//查找任何参数,param -> query -> postform
+func (c *Context) Form(key string) string {
+	v, _ := c.FromGet(key)
 	return v
 }
 
-func (c *Context) ValueDefault(key,def string) string {
-	if v, ok := c.ValueGet(key);ok{
+func (c *Context) FormDefault(key,def string) string {
+	if v, ok := c.FromGet(key);ok{
 		return v
 	}
 	return def
 }
 
-func (c *Context) ValueGet(key string) (string,bool) {
-	v, ok := c.ParamGet(key)
-	if ok{
+func (c *Context) FromGet(key string) (string,bool) {
+	v,ok := c.PostFormGet(key)
+	if ok {
 		return v,ok
 	}
 	v,ok = c.QueryGet(key)
 	if ok {
 		return v,ok
 	}
-	v,ok = c.PostFormGet(key)
-	if ok {
+	v, ok = c.ParamGet(key)
+	if ok{
 		return v,ok
 	}
 	return "",false
 }
 
-func (c *Context) BindForm(obj interface{}) error {
-	//TODO:bindForm
-	return nil
-}
-
 func (c *Context) BindPostForm(obj interface{}) error {
-	return c.BindWith(obj, PostForm)
+	return c.BindWith(obj, BindPostForm)
 }
 
 func (c *Context) BindQuery(obj interface{}) error {
-	return c.BindWith(obj, Query)
+	return c.BindWith(obj, BindQuery)
+}
+
+func (c *Context) BindParam(obj interface{}) error {
+	return c.BindWith(obj,BindParam)
+}
+
+//postform > query > param
+func (c *Context) BindForm(obj interface{}) error {
+	err := c.BindParam(obj)
+	err = c.BindQuery(obj)
+	err = c.BindPostForm(obj)
+	return err
 }
 
 func (c *Context) JSONGet(path ...string) (*gjson.Result,error) {
@@ -299,12 +329,21 @@ func (c *Context) BindWith(obj interface{},b Binding) error {
 	case "JSON":
 		return c.BindJSON(obj)
 	default:
-		return b.Parse(c.Request,obj)
+		return b.Parse(c,obj)
 	}
 }
 
-func (c *Context) Bind(obj interface{}) error {
-	return nil
+func (c *Context) Bind(obj interface{}) (err error) {
+	t := strings.Split(c.Request.Header.Get("Content-Type"),";")[0]
+	switch t {
+	case mimeJSON:
+		err = c.BindJSON(obj)
+	case mimePOSTForm,mimeMultipartPOSTForm:
+		err = c.BindPostForm(obj)
+	default:
+		err = c.BindForm(obj)
+	}
+	return
 }
 
 
@@ -352,11 +391,11 @@ func (c *Context) File(path string)  {
 }
 
 func (c *Context) filePath() string {
-	//	TODO:如果是请求文件，解析请求文件的路径
-	return ""
+	return c.Param("filepath")
 }
 
-func (c *Context) WriteJSON(obj interface{}) error {
+func (c *Context) WriteJSON(code int,obj interface{}) error {
+	c.Writer.WriteHeader(code)
 	bs, err := json.Marshal(obj)
 	if err != nil{
 		return err
@@ -365,6 +404,8 @@ func (c *Context) WriteJSON(obj interface{}) error {
 	return err
 }
 
-func (c *Context) WriteString()  {
-
+func (c *Context) WriteString(code int,str string)  {
+	c.Writer.WriteHeader(code)
+	c.Writer.Write([]byte(str))
 }
+
