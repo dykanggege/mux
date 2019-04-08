@@ -2,20 +2,22 @@ package main
 
 import (
 	"fmt"
+	"github.com/astaxie/beego"
 	"net/http"
 )
 
 func main() {
-	str := "az"
-	fmt.Println(str[0])
-	fmt.Println(str[1])
-	fmt.Println(string(str[0]-32))
-
-	str2 := "AZ"
-	fmt.Println(str2[0])
-	fmt.Println(str2[1])
-
-	http.HandleFunc("", func(w http.ResponseWriter, r *http.Request) {
-		r.Header.Set("a","v")
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println(r.RequestURI)
+		fmt.Println(r.URL.EscapedPath())
 	})
+	http.ListenAndServe(":8080",nil)
+}
+
+type bg struct {
+	beego.Controller
+}
+
+func (b *bg)Get()  {
+	b.GetSession()
 }
