@@ -2,6 +2,7 @@ package mux
 
 import (
 	"encoding/json"
+	"mux/ctx"
 )
 
 const (
@@ -27,13 +28,13 @@ var (
 
 type Binding interface {
 	Name() string
-	Parse(*Context,interface{}) error
+	Parse(*ctx.Context,interface{}) error
 }
 
 type json2 struct {
 }
 
-func (j *json2) Parse(*Context, interface{}) error {
+func (j *json2) Parse(*ctx.Context, interface{}) error {
 	panic("nothing")
 
 }
@@ -48,7 +49,7 @@ func (*query) Name() string {
 	return "Query"
 }
 
-func (*query) Parse(c *Context,obj interface{}) error {
+func (*query) Parse(c *ctx.Context,obj interface{}) error {
 	//TODO:bind parse query 性能优化
 	if c.querys == nil{
 		c.querys = c.Request.URL.Query()
@@ -68,7 +69,7 @@ func (*postForm) Name() string {
 	return "PostForm"
 }
 
-func (*postForm) Parse(c *Context,obj interface{}) (err error) {
+func (*postForm) Parse(c *ctx.Context,obj interface{}) (err error) {
 	//TODO:bind parse postform 性能优化
 	r := c.Request
 	err = r.ParseMultipartForm(c.mux.MaxMultipartMemory)
@@ -88,7 +89,7 @@ func (*param2) Name() string {
 	return "Param"
 }
 
-func (*param2) Parse(c *Context,obj interface{}) error {
+func (*param2) Parse(c *ctx.Context,obj interface{}) error {
 	bytes, err := json.Marshal(c.params)
 	if err != nil{return err}
 	return json.Unmarshal(bytes,obj)

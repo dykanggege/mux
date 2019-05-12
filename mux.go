@@ -1,6 +1,8 @@
 package mux
 
 import (
+	"mux/ctx"
+	"mux/router"
 	"mux/session"
 	"net/http"
 	"sync"
@@ -21,14 +23,14 @@ func Default() *Mux {
 //TODO:支持fasthttp
 func New() (m *Mux) {
 	m = &Mux{
-		RouterGroup:defaultRouterGroup,
-		ctxPool:&sync.Pool{},
-		trees:methodTrees{},
+		RouterGroup: router.defaultRouterGroup,
+		ctxPool:     &sync.Pool{},
+		trees:       router.methodTrees{},
 	}
 
 	m.RouterGroup.mux = m
 	m.ctxPool.New = func() interface{} {
-		c := &Context{mux: m}
+		c := &ctx.Context{mux: m}
 		return 	c
 	}
 	return
@@ -40,7 +42,7 @@ func New() (m *Mux) {
 //}
 
 type Mux struct {
-	RouterGroup
+	router.RouterGroup
 	Session session.Sessioner
 
 	//if true 使用未解码的PATH，default false
@@ -55,12 +57,12 @@ type Mux struct {
 	MaxMultipartMemory int64
 
 	ctxPool *sync.Pool
-	trees methodTrees
+	trees   router.methodTrees
 }
 
 func (m *Mux) ServeHTTP(rw http.ResponseWriter,req *http.Request) {
 	//从池子中取出 Context，http上下文信息
-	ctx := m.ctxPool.Get().(*Context)
+	ctx := m.ctxPool.Get().(*ctx.Context)
 	ctx.reset(req,rw)
 
 	m.handleHTTPRequest(ctx)
@@ -68,7 +70,7 @@ func (m *Mux) ServeHTTP(rw http.ResponseWriter,req *http.Request) {
 	m.ctxPool.Put(ctx)
 }
 
-func (m *Mux)handleHTTPRequest(ctx *Context)  {
+func (m *Mux)handleHTTPRequest(ctx *ctx.Context)  {
 	method := ctx.Request.Method
 	path := ctx.Request.URL.Path
 
@@ -82,6 +84,6 @@ func (m *Mux)handleHTTPRequest(ctx *Context)  {
 	}
 }
 
-func (m *Mux)addRouter(method,absolutePath string,chain handleChain)  {
+func (m *Mux)addRouter(method,absolutePath string,chain router.handleChain)  {
 	m.trees.addRouter(method,absolutePath,chain)
 }

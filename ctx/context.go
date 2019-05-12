@@ -1,4 +1,4 @@
-package mux
+package ctx
 
 import (
 	"encoding/json"
@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"mime/multipart"
+	"mux/router"
 	"net/http"
 	"os"
 	"strconv"
@@ -29,8 +30,8 @@ type Context struct {
 	jsonBytes []byte
 	jsonResult *gjson.Result
 
-	mux *Mux
-	handlers handleChain
+	mux      *Mux
+	handlers router.handleChain
 	index    int8
 }
 

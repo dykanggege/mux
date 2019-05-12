@@ -1,7 +1,8 @@
-package mux
+package router
 
 import (
 	"math"
+	"mux/ctx"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -14,8 +15,8 @@ const (
 )
 
 //每个请求的处理函数的接口
-type RequestHandlerFunc func(ctx *Context)
-type tRequestHandlerFunc = func(ctx *Context)
+type RequestHandlerFunc func(ctx *ctx.Context)
+type tRequestHandlerFunc = func(ctx *ctx.Context)
 
 type handleChain []RequestHandlerFunc
 
@@ -121,7 +122,7 @@ func (r *RouterGroup) Use(handles ...RequestHandlerFunc) IRoute {
 }
 
 func (r *RouterGroup) StaticFile(relative,path string) IRoute {
-	handle := func(c *Context) {
+	handle := func(c *ctx.Context) {
 		c.File(path)
 	}
 	r.GET(relative, handle)
@@ -134,10 +135,10 @@ func (r *RouterGroup) Static(relative string,staticPath string) IRoute {
 		panic("URL parameters can not be used when serving a static folder")
 	}
 	fp := path.Join(relative+"/*filepath")
-	r.GET(fp, func(ctx *Context) {
+	r.GET(fp, func(ctx *ctx.Context) {
 		http.ServeFile(ctx.Writer,ctx.Request,filepath.Join(staticPath,ctx.filePath()))
 	})
-	r.HEAD(fp, func(ctx *Context) {
+	r.HEAD(fp, func(ctx *ctx.Context) {
 		http.ServeFile(ctx.Writer,ctx.Request,filepath.Join(staticPath,ctx.filePath()))
 	})
 	return r.returnObj()
