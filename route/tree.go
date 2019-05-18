@@ -1,4 +1,4 @@
-package router
+package route
 
 import (
 	"net/url"
@@ -7,13 +7,16 @@ import (
 )
 
 //实现注册路由和解析路由中参数的功能
+func NewMethodTrees() *MethodTrees {
+	return &MethodTrees{}
+}
 
-type methodTrees struct {
+type MethodTrees struct {
 	mts []*methodTree
 }
 
 //添加路由
-func (m *methodTrees) addRouter(method ,absolutePath string,chain handleChain) {
+func (m *MethodTrees) AddRouter(method ,absolutePath string,chain []HandlerFunc) {
 	for _,t := range m.mts{
 		if t.method == method{
 			t.addRouter(absolutePath,chain)
@@ -27,7 +30,7 @@ func (m *methodTrees) addRouter(method ,absolutePath string,chain handleChain) {
 }
 
 //获取路由注册的处理函数和参数
-func (m *methodTrees) getValue(method,path string,params Params,unescape bool) (handlers handleChain, p Params, tsr bool) {
+func (m *MethodTrees) GetValues(method,path string,params Params,unescape bool) (handlers []HandlerFunc, p Params, tsr bool) {
 	for i := range m.mts{
 		if m.mts[i].method == method{
 			return m.mts[i].root.getValue(path,params,unescape)
@@ -41,7 +44,7 @@ type methodTree struct {
 	root *node
 }
 
-func (m *methodTree) addRouter(absolutePath string,chain handleChain)  {
+func (m *methodTree) addRouter(absolutePath string,chain []HandlerFunc)  {
 	m.root.addRoute(absolutePath,chain)
 }
 
@@ -108,7 +111,7 @@ type node struct {
 	path      string
 	indices   string
 	children  []*node
-	handlers  handleChain
+	handlers  []HandlerFunc
 	priority  uint32
 	nType     nodeType
 	maxParams uint8
@@ -141,7 +144,7 @@ func (n *node) incrementChildPrio(pos int) int {
 
 // addRoute adds a node with the given handle to the path.
 // Not concurrency-safe!
-func (n *node) addRoute(path string, handlers handleChain) {
+func (n *node) addRoute(path string, handlers []HandlerFunc) {
 	fullPath := path
 	n.priority++
 	//除了*和:之外的字符num,最长255
@@ -275,7 +278,7 @@ func (n *node) addRoute(path string, handlers handleChain) {
 	}
 }
 
-func (n *node) insertChild(numParams uint8, path string, fullPath string, handlers handleChain) {
+func (n *node) insertChild(numParams uint8, path string, fullPath string, handlers []HandlerFunc) {
 	var offset int // already handled bytes of the path
 
 	// find prefix until first wildcard (beginning with ':' or '*')
@@ -388,12 +391,12 @@ func (n *node) insertChild(numParams uint8, path string, fullPath string, handle
 	n.handlers = handlers
 }
 
-// getValue returns the handle registered with the given path (key). The values of
+// handles returns the handle registered with the given path (key). The values of
 // wildcards are saved to a map.
 // If no handle can be found, a TSR (trailing slash redirect) recommendation is
 // made if a handle exists with an extra (without the) trailing slash for the
 // given path.
-func (n *node) getValue(path string, po Params, unescape bool) (handlers handleChain, p Params, ok bool) {
+func (n *node) getValue(path string, po Params, unescape bool) (handlers []HandlerFunc, p Params, tsr bool) {
 	p = po
 walk: // Outer loop for walking the tree
 	for {
@@ -415,7 +418,7 @@ walk: // Outer loop for walking the tree
 					// Nothing found.
 					// We can recommend to redirect to the same URL without a
 					// trailing slash if a leaf exists for that path.
-					ok = path == "/" && n.handlers != nil
+					tsr = path == "/" && n.handlers != nil
 					return
 				}
 
@@ -455,7 +458,7 @@ walk: // Outer loop for walking the tree
 						}
 
 						// ... but we can't
-						ok = len(path) == end+1
+						tsr = len(path) == end+1
 						return
 					}
 
@@ -466,7 +469,7 @@ walk: // Outer loop for walking the tree
 						// No handle found. Check if a handle for this path + a
 						// trailing slash exists for TSR recommendation
 						n = n.children[0]
-						ok = n.path == "/" && n.handlers != nil
+						tsr = n.path == "/" && n.handlers != nil
 					}
 
 					return
@@ -503,7 +506,7 @@ walk: // Outer loop for walking the tree
 			}
 
 			if path == "/" && n.wildChild && n.nType != root {
-				ok = true
+				tsr = true
 				return
 			}
 
@@ -512,7 +515,7 @@ walk: // Outer loop for walking the tree
 			for i := 0; i < len(n.indices); i++ {
 				if n.indices[i] == '/' {
 					n = n.children[i]
-					ok = (len(n.path) == 1 && n.handlers != nil) ||
+					tsr = (len(n.path) == 1 && n.handlers != nil) ||
 						(n.nType == catchAll && n.children[0].handlers != nil)
 					return
 				}
@@ -523,7 +526,7 @@ walk: // Outer loop for walking the tree
 
 		// Nothing found. We can recommend to redirect to the same URL with an
 		// extra trailing slash if a leaf exists for that path
-		ok = (path == "/") ||
+		tsr = (path == "/") ||
 			(len(n.path) == len(path)+1 && n.path[len(path)] == '/' &&
 				path == n.path[:len(n.path)-1] && n.handlers != nil)
 		return

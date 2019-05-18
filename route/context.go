@@ -1,4 +1,4 @@
-package ctx
+package route
 
 import (
 	"encoding/json"
@@ -6,43 +6,50 @@ import (
 	"io"
 	"io/ioutil"
 	"mime/multipart"
-	"mux/router"
+	"mux/route/bind"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 )
 
-type M map[string]interface{}
-
 type Context struct {
 	Request *http.Request
-	Writer  http.ResponseWriter
-	//路径参数
-	params Params
-	//URL参数
-	querys map[string][]string
-	//上下文参数传递
+	Writer http.ResponseWriter
+
+	route *Route
+
+	handlers []HandlerFunc
+	index    int8
 	keys map[string]interface{}
 
-
+	//path参数
+	params  Params
+	//URL参数
+	querys map[string][]string
 	//解析json数据
 	jsonBytes []byte
 	jsonResult *gjson.Result
-
-	mux      *Mux
-	handlers router.handleChain
-	index    int8
 }
 
-func (c *Context) reset(r *http.Request,w http.ResponseWriter)  {
+//用于重置context，用户一般用不到这个方法
+func (c *Context) Reset(w http.ResponseWriter,r *http.Request,route *Route,chain []HandlerFunc,ps Params) {
 	c.Request = r
 	c.Writer = w
+	c.route = route
+	c.handlers = chain
+	c.params = ps
 
 	c.index = -1
-	c.params = nil
-	c.keys = nil
+}
+
+//用于释放context，用户一般用不到这个方法
+func (c *Context) Release() {
+	c.Request = nil
+	c.Writer = nil
 	c.handlers = nil
+	c.keys = nil
+	c.params = nil
 	c.querys = nil
 	c.jsonBytes = nil
 	c.jsonResult = nil
@@ -54,6 +61,22 @@ func (c *Context) Next()  {
 		c.handlers[c.index](c)
 		c.index++
 	}
+}
+
+//传递上下文信息
+func (c *Context) Set(key string,val interface{})  {
+	if c.keys == nil{
+		c.keys = make(map[string]interface{})
+	}
+	c.keys[key] = val
+}
+
+func (c *Context) Get(key string) (interface{},bool) {
+	if c.keys == nil{
+		return nil,false
+	}
+	val,ok := c.keys[key]
+	return val,ok
 }
 
 func (c *Context) Method() string {
@@ -71,7 +94,7 @@ func (c *Context) URI() string {
 	return path[:len(path)-1]
 }
 
-func (c *Context) URIRaw() string {
+func (c *Context) URIEscaped() string {
 	return c.Request.RequestURI
 }
 
@@ -79,7 +102,7 @@ func (c *Context)Path() string {
 	return c.Request.URL.Path
 }
 
-func (c *Context)PathRaw() string {
+func (c *Context)PathEscaped() string {
 	p := c.Request.URL.RawPath
 	if  p != ""{
 		return p
@@ -111,21 +134,6 @@ func (c *Context) CookieGet(key string) (*http.Cookie, error) {
 	return c.Request.Cookie(key)
 }
 
-func (c *Context) CookieAdd(coo *http.Cookie)  {
-	http.SetCookie(c.Writer,coo)
-}
-
-func (c *Context) Session(key string) interface{} {
-	return c.mux.Session.Get(key)
-}
-
-func (c *Context) SessionSet(key string,val interface{})  {
-	c.mux.Session.Set(key,val)
-}
-
-func (c *Context) SessionDel(key string)  {
-	c.mux.Session.Del(key)
-}
 
 //path参数 /user/:id
 func (c *Context) Param(key string) string {
@@ -210,7 +218,7 @@ func (c *Context) PostFormArray(key string) []string {
 }
 
 func (c *Context) PostFormArrayGet(key string) ([]string,bool) {
-	_ = c.Request.ParseMultipartForm(c.mux.MaxMultipartMemory)
+	_ = c.Request.ParseMultipartForm(c.route.RouteConf.MaxMultipartMemory)
 	arr,ok := c.Request.PostForm[key]
 	if ok && len(arr) > 0{
 		return arr,ok
@@ -219,7 +227,7 @@ func (c *Context) PostFormArrayGet(key string) ([]string,bool) {
 }
 
 func (c *Context) PostFroms(key string) map[string][]string {
-	_ = c.Request.ParseMultipartForm(c.mux.MaxMultipartMemory)
+	_ = c.Request.ParseMultipartForm(c.route.RouteConf.MaxMultipartMemory)
 	return c.Request.PostForm
 }
 
@@ -254,26 +262,21 @@ func (c *Context) FromGet(key string) (string,bool) {
 }
 
 func (c *Context) BindPostForm(obj interface{}) error {
-	return c.BindWith(obj, BindPostForm)
+	return c.BindWith(obj, bind.PostForm)
 }
 
 func (c *Context) BindQuery(obj interface{}) error {
-	return c.BindWith(obj, BindQuery)
+	return c.BindWith(obj, bind.Query)
 }
 
-func (c *Context) BindParam(obj interface{}) error {
-	return c.BindWith(obj,BindParam)
-}
-
-//postform > query > param
+//postform > query
 func (c *Context) BindForm(obj interface{}) error {
-	err := c.BindParam(obj)
-	err = c.BindQuery(obj)
+	err := c.BindQuery(obj)
 	err = c.BindPostForm(obj)
 	return err
 }
 
-func (c *Context) JSONGet(path ...string) (*gjson.Result,error) {
+func (c *Context) FormJSONGet(path ...string) (*gjson.Result,error) {
 	err := c.jsonResultAvailable()
 	if len(path) == 0{
 		return c.jsonResult,err
@@ -325,26 +328,16 @@ func (c *Context) jsonBytesAvailable() error {
 	return nil
 }
 
-func (c *Context) BindWith(obj interface{},b Binding) error {
-	switch b.Name() {
-	case "JSON":
-		return c.BindJSON(obj)
-	default:
-		return b.Parse(c,obj)
-	}
+func (c *Context) BindWith(obj interface{},b bind.Binder) error {
+	return b.Parse(c.Request,obj)
 }
 
-func (c *Context) Bind(obj interface{}) (err error) {
+func (c *Context) Bind(obj interface{}) error {
 	t := strings.Split(c.Request.Header.Get("Content-Type"),";")[0]
-	switch t {
-	case mimeJSON:
-		err = c.BindJSON(obj)
-	case mimePOSTForm,mimeMultipartPOSTForm:
-		err = c.BindPostForm(obj)
-	default:
-		err = c.BindForm(obj)
+	opts := map[string]bind.Binder{
+		bind.MIME_JSON: bind.JSON,
 	}
-	return
+	return opts[t].Parse(c.Request,obj)
 }
 
 
@@ -369,30 +362,13 @@ func (c *Context) FileSave(header *multipart.FileHeader,path string) error {
 	return err
 }
 
-//传递上下文信息
-func (c *Context) Set(key string,val interface{})  {
-	if c.keys == nil{
-		c.keys = make(map[string]interface{})
-	}
-	c.keys[key] = val
-}
-
-func (c *Context) Get(key string) (interface{},bool) {
-	if c.keys == nil{
-		return nil,false
-	}
-	val,ok := c.keys[key]
-	return val,ok
-}
-
-
 //返回信息
+func (c *Context) Code(code int)  {
+	c.Writer.WriteHeader(code)
+}
+
 func (c *Context) File(path string)  {
 	http.ServeFile(c.Writer,c.Request,path)
-}
-
-func (c *Context) filePath() string {
-	return c.Param("filepath")
 }
 
 func (c *Context) WriteJSON(code int,obj interface{}) error {
@@ -409,4 +385,3 @@ func (c *Context) WriteString(code int,str string)  {
 	c.Writer.WriteHeader(code)
 	c.Writer.Write([]byte(str))
 }
-
