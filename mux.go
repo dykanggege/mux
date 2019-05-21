@@ -47,8 +47,3 @@ func (m *Mux) RunTSL(certFile, keyFile string,port ...string) error {
 	}
 	return http.ListenAndServeTLS(port[0],certFile, keyFile ,m)
 }
-
-
-//TODO:JWT模块
-//TODO:config模块
-//TODO:log模块

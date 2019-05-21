@@ -1,15 +1,5 @@
 package session
 
-import (
-	"crypto/rand"
-	"encoding/base64"
-	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-)
-
 //session接口
 type Sessioner interface {
 	Get(interface{}) interface{}
